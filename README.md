@@ -1,9 +1,9 @@
-## Hackaton deepracer 
+## Fitja: Hackaton deepracer 
+AWS Deep Racer model for hackaton.
+
 
 ### deepracer 
-
-This is source the code used by Falk Tandetzky during the Deepracer Championship 2019, later updated.
-
+This is initial source the code used by Falk Tandetzky during the Deepracer Championship 2019, later updated.
 ### See also
 
 Explanation of the reward function: https://medium.com/twodigits/aws-deepracer-how-to-train-a-model-in-15-minutes-3a0dca1175fb
