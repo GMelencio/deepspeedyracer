@@ -1,8 +1,10 @@
-# deepracer
+## Hackaton deepracer 
 
-This is the code used by Falk Tandetzky during the Deepracer Championship 2019.
+### deepracer 
 
-## See also
+This is source the code used by Falk Tandetzky during the Deepracer Championship 2019, later updated.
+
+### See also
 
 Explanation of the reward function: https://medium.com/twodigits/aws-deepracer-how-to-train-a-model-in-15-minutes-3a0dca1175fb
 
