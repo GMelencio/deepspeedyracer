@@ -1,5 +1,6 @@
 ## Fitja: Hackaton deepracer 
 AWS Deep Racer model for hackaton.
+Example Shangai track:
 ![Fitja](https://github.com/acailic/hack9-deepracer/blob/master/fitja_500_shangaj.PNG)
 ![IdeGas](https://github.com/acailic/hack9-deepracer/blob/master/auto.PNG)
 ### deepracer 
