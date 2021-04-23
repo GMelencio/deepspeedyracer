@@ -194,8 +194,6 @@ def reward_function(params):
 
     elif not go_fast and speed < SPEED_THRESHOLD:
         reward += 0.1
-    # Positive reward if the car is in a straight line going fast
-    if abs(steering) < 0.1 and speed > SPEED_THRESHOLD:
-        reward *= 1.2
+ 
         
     return float(score_steer_to_point_ahead(params))+reward
