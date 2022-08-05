@@ -7,6 +7,7 @@ MID_STEP = 7
 TURN_THRESHOLD = 10     # degrees
 DIST_THRESHOLD = 1.2    # metres
 SPEED_THRESHOLD = 1.8   # m/s
+SPEED_INCENTIVE_FACTOR = 0.1
 
 def identify_corner(waypoints, closest_waypoints, future_step):
 
@@ -186,12 +187,15 @@ def reward_function(params):
     speed = params['speed']
     reward = 0
     
+    #TODO: Improve on this by instead of returning a boolean value, return a float that defines how far off and how sharp the next the corner is
     go_fast = select_speed(waypoints, closest_waypoints, FUTURE_STEP, MID_STEP)
 
     # Implement speed incentive
     if go_fast and speed > SPEED_THRESHOLD:
-        reward += 0.1
+        additional_reward_for_going_faster = (speed - SPEED_THRESHOLD)* SPEED_INCENTIVE_FACTOR
+        reward = reward + 0.1 + additional_reward_for_going_faster
 
+    #TODO: adjust reward for slowing down more the sharper and closer the next curve is
     elif not go_fast and speed < SPEED_THRESHOLD:
         reward += 0.1
  
