@@ -2,12 +2,14 @@ import math
 import numpy as np
 
 # Parameters
-FUTURE_STEP = 14
-MID_STEP = 7
+FUTURE_STEP = 16
+MID_STEP = 8
 TURN_THRESHOLD = 10     # degrees
 DIST_THRESHOLD = 1.2    # metres
-SPEED_THRESHOLD = 1.8   # m/s
-SPEED_INCENTIVE_FACTOR = 0.1
+SPEED_THRESHOLD = 1.7   # m/s
+
+SPEED_INCENTIVE_FACTOR = 0.05 #Additional reward incentive for going faster
+TURN_LOOKAHEAD_FACTOR = 1.2 #How far to look ahead for turns (relative to track width)
 
 def identify_corner(waypoints, closest_waypoints, future_step):
 
@@ -36,6 +38,32 @@ def identify_corner(waypoints, closest_waypoints, future_step):
 
     return diff_heading, dist_future
 
+
+def total_angle_of_curve(waypoints, first_point_on_curve, track_length_of_curve)
+    #NOTE: this expects that waypoints are ordered by distance from car (NOT linear distance as the car may be on a hairpin turn)
+
+    distances = [dist(p, first_point_on_curve) for p in waypoints]
+    min_dist = min(distances)
+    i_closest = distances.index(min_dist)
+    
+    #my n00b way of keeping track of variables cause I have to re-learn python after many years
+    i = i_closest
+    track_distance_traversed = 0.0
+    total_angle = 0
+    
+    #Iterate through waypoints, starting from i_closest, keep going until = track_distance_between
+    while track_distance_traversed < track_length_of_curve:
+        waypoint_current = waypoints[i]
+        waypoint_next = waypoints[i+1]
+        track_distance_traversed += dist(waypoint_current, waypoint_next)
+        opposite = waypoint_next[1] - waypoint_current[1]
+        adjacent = waypoint_next[0] - waypoint_current[0]
+        angle = math.atan2(opposite, adjacent) #output to log to check value
+        total_angle += angle
+
+    return total_angle
+
+#TODO: replace this with a function that takes into account how far is a sharp curve is ahead
 def select_speed(waypoints, closest_waypoints, future_step, mid_step):
 
     # Identify if a corner is in the future
@@ -144,7 +172,7 @@ def get_target_point(params):
 
     waypoints_starting_with_closest = [waypoints[(i+i_closest) % n] for i in range(n)]
 
-    r = params['track_width'] * 0.9
+    r = params['track_width'] * TURN_LOOKAHEAD_FACTOR
 
     is_inside = [dist(p, car) < r for p in waypoints_starting_with_closest]
     i_first_outside = is_inside.index(False)
