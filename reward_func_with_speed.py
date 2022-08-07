@@ -39,7 +39,7 @@ def identify_corner(waypoints, closest_waypoints, future_step):
     return diff_heading, dist_future
 
 
-def total_angle_of_curve(waypoints, first_point_on_curve, track_length_of_curve)
+def total_angle_of_curve(waypoints, first_point_on_curve, track_length_of_curve):
     #NOTE: this expects that waypoints are ordered by distance from car (NOT linear distance as the car may be on a hairpin turn)
 
     distances = [dist(p, first_point_on_curve) for p in waypoints]
@@ -48,7 +48,7 @@ def total_angle_of_curve(waypoints, first_point_on_curve, track_length_of_curve)
     
     #my n00b way of keeping track of variables cause I have to re-learn python after many years
     i = i_closest
-    track_distance_traversed = 0.0
+    track_distance_traversed = 0
     total_angle = 0
     
     #Iterate through waypoints, starting from i_closest, keep going until = track_distance_between
