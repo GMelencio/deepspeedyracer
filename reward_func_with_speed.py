@@ -8,8 +8,8 @@ TURN_THRESHOLD = 12     # degrees
 DIST_THRESHOLD = 1.2    # metres
 SPEED_THRESHOLD = 1.9   # m/s
 
-SPEED_INCENTIVE_FACTOR = 0.07 #Additional reward incentive for going faster
-TURN_LOOKAHEAD_FACTOR = 1.2 #How far to look ahead for turns (relative to track width)
+SPEED_INCENTIVE_FACTOR = 0.085 #Additional reward incentive for going faster
+TURN_LOOKAHEAD_FACTOR = 1.21 #How far to look ahead for turns (relative to track width)
 
 def identify_corner(waypoints, closest_waypoints, future_step):
 
@@ -229,3 +229,43 @@ def reward_function(params):
  
         
     return float(score_steer_to_point_ahead(params))+reward
+
+def get_corners_and_sharpness_scores(interval_min, interval_max, waypoints, threshhold):
+    corner_ranges = []
+    waypoints_and_scores = []
+    for j in range(0, len(waypoints)-1):
+        debug_output = "C@ " + str(j)
+        corner_score = 0
+        for steps in range(interval_min,interval_max):
+            corner_check = identify_corner(waypoints, [j, j+1], steps)
+            corner_factor = (corner_check[0]/corner_check[1])/steps
+            corner_score = corner_score + corner_factor
+            
+        if corner_score >= threshhold :           
+            if len(corner_ranges) > 1 and j - corner_ranges[-1][-1][0] >= interval_min :
+                #previous range existed and is relatively close, use that one moving forward
+                waypoints_and_scores = corner_ranges[-1]
+                print("reconciled previous at {}".format(corner_ranges[-1][-1][0]))
+                
+            print("Adding {} to range, score: {}".format(str(j), str(corner_factor)[0:4]))
+            waypoints_and_scores.append([j, corner_score])
+        elif len(waypoints_and_scores) > 2 :
+           print("creating new range from {} to {}".format(waypoints_and_scores[0][0], j))
+           corner_ranges.append(waypoints_and_scores)
+           waypoints_and_scores = []
+        #debug_output = debug_output + " " + str(corner_factor)[0:4] + ","
+        #print(debug_output + " = " + str(corner_score)[0:4])
+    return corner_ranges
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+for waypoint in testwaypoints:
+    plt.scatter(waypoint[0], waypoint[1], color='k')
+
+corner_ranges = get_corners_and_sharpness_scores(3,12,testwaypoints, 17)
+for waypoint_scores in corner_ranges:
+    for k in waypoint_scores:
+        plt.scatter(testwaypoints[k[0]][0], testwaypoints[k[0]][1], color='r', s=k[1]/1.5) 
+
+plt.show()
