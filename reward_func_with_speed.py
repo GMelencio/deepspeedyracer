@@ -4,11 +4,11 @@ import numpy as np
 # Parameters
 FUTURE_STEP = 16
 MID_STEP = 8
-TURN_THRESHOLD = 10     # degrees
+TURN_THRESHOLD = 12     # degrees
 DIST_THRESHOLD = 1.2    # metres
-SPEED_THRESHOLD = 1.7   # m/s
+SPEED_THRESHOLD = 1.9   # m/s
 
-SPEED_INCENTIVE_FACTOR = 0.05 #Additional reward incentive for going faster
+SPEED_INCENTIVE_FACTOR = 0.07 #Additional reward incentive for going faster
 TURN_LOOKAHEAD_FACTOR = 1.2 #How far to look ahead for turns (relative to track width)
 
 def identify_corner(waypoints, closest_waypoints, future_step):

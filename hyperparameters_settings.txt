@@ -1,0 +1,9 @@
+Model name: Tantine-V3
+Hyperparameter Value
+Gradient descent batch size	64
+Entropy	0.012
+Discount factor	0.5
+Loss type	Huber
+Learning rate	0.00035
+Number of experience episodes between each policy-updating iteration	6
+Number of epochs	7
