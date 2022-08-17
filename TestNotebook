@@ -1,0 +1,433 @@
+import math
+from random import sample
+import numpy as np
+
+# Parameters
+FUTURE_STEP = 16
+MID_STEP = 8
+TURN_THRESHOLD = 10     # degrees
+DIST_THRESHOLD = 1.2    # metres
+SPEED_THRESHOLD = 1.7   # m/s
+
+SPEED_INCENTIVE_FACTOR = 0.05 #Additional reward incentive for going faster
+TURN_LOOKAHEAD_FACTOR = 1.2 #How far to look ahead for turns (relative to track width)
+
+def identify_corner(waypoints, closest_waypoints, future_step):
+
+    # Identify next waypoint and a further waypoint
+    point_prev = waypoints[closest_waypoints[0]]
+    point_next = waypoints[closest_waypoints[1]]
+    point_future = waypoints[min(len(waypoints) - 1, 
+                                 closest_waypoints[1] + future_step)]
+
+    # Calculate headings to waypoints
+    heading_current = math.degrees(math.atan2(point_prev[1] - point_next[1], 
+                                             point_prev[0] - point_next[0]))
+    heading_future = math.degrees(math.atan2(point_prev[1] - point_future[1], 
+                                             point_prev[0]-point_future[0]))
+
+    # Calculate the difference between the headings
+    diff_heading = abs(heading_current - heading_future)
+
+    # Check we didn't choose the reflex angle
+    if diff_heading > 180:
+        diff_heading = 360 - diff_heading
+
+    # Calculate distance to further waypoint
+    dist_future = np.linalg.norm([point_next[0] - point_future[0],
+                                  point_next[1] - point_future[1]])  
+
+    return diff_heading, dist_future
+
+
+def total_angle_of_curve(waypoints, first_point_on_curve, track_length_of_curve):
+    #NOTE: this expects that waypoints are ordered by distance from car (NOT linear distance as the car may be on a hairpin turn)
+
+    distances = [dist(p, first_point_on_curve) for p in waypoints]
+    min_dist = min(distances)
+    i_closest = distances.index(min_dist)
+    
+    #my n00b way of keeping track of variables cause I have to re-learn python after many years
+    i = i_closest
+    track_distance_traversed = 0
+    total_angle = 0
+    
+    #Iterate through waypoints, starting from i_closest, keep going until = track_distance_between
+    while track_distance_traversed < track_length_of_curve:
+        waypoint_current = waypoints[i]
+        waypoint_next = waypoints[i+1]
+        track_distance_traversed += dist(waypoint_current, waypoint_next)
+        opposite = waypoint_next[0] - waypoint_current[0]
+        adjacent = waypoint_next[1] - waypoint_current[1]
+        angle =  math.degrees(math.atan2(adjacent,opposite)) #output to log to check value
+        print("Angle between {} and {} is {}".format(i, i+1, angle))
+        i=i+1
+        total_angle += angle
+
+    return total_angle, i_closest, i
+
+#TODO: replace this with a function that takes into account how far is a sharp curve is ahead
+def select_speed(waypoints, closest_waypoints, future_step, mid_step):
+
+    # Identify if a corner is in the future
+    diff_heading, dist_future = identify_corner(waypoints, 
+                                                    closest_waypoints, 
+                                                    future_step)
+
+    if diff_heading < TURN_THRESHOLD:
+        # If there's no corner encourage going faster
+        go_fast = True
+    else:
+        if dist_future < DIST_THRESHOLD:
+            # If there is a corner and it's close encourage going slower
+            go_fast = False
+        else:
+            # If the corner is far away, re-assess closer points
+            diff_heading_mid, dist_mid = identify_corner(waypoints, 
+                                                         closest_waypoints, 
+                                                         mid_step)
+
+            if diff_heading_mid < TURN_THRESHOLD:
+                # If there's no corner encourage going faster
+                go_fast = True
+            else:
+                # If there is a corner and it's close encourage going slower
+                go_fast = False
+
+    return go_fast
+
+def dist(point1, point2):
+    return ((point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2) ** 0.5
+    
+def rect(r, theta):
+    """
+    theta in degrees
+    returns tuple; (float, float); (x,y)
+    """
+
+    x = r * math.cos(math.radians(theta))
+    y = r * math.sin(math.radians(theta))
+    return x, y
+
+
+def polar(x, y):
+    """
+    returns r, theta(degrees)
+    """
+
+    r = (x ** 2 + y ** 2) ** .5
+    theta = math.degrees(math.atan2(y,x))
+    return r, theta
+
+
+def angle_mod_360(angle):
+    """
+    Maps an angle to the interval -180, +180.
+    Examples:
+    angle_mod_360(362) == 2
+    angle_mod_360(270) == -90
+    :param angle: angle in degree
+    :return: angle in degree. Between -180 and +180
+    """
+
+    n = math.floor(angle/360.0)
+
+    angle_between_0_and_360 = angle - n*360.0
+
+    if angle_between_0_and_360 <= 180.0:
+        return angle_between_0_and_360
+    else:
+        return angle_between_0_and_360 - 360
+
+
+def get_waypoints_ordered_in_driving_direction(params):
+    # waypoints are always provided in counter clock wise order
+    if params['is_reversed']: # driving clock wise.
+        return list(reversed(params['waypoints']))
+    else: # driving counter clock wise.
+        return params['waypoints']
+
+
+def up_sample(waypoints, factor):
+    """
+    Adds extra waypoints in between provided waypoints
+    :param waypoints:
+    :param factor: integer. E.g. 3 means that the resulting list has 3 times as many points.
+    :return:
+    """
+    p = waypoints
+    n = len(p)
+
+    return [[i / factor * p[(j+1) % n][0] + (1 - i / factor) * p[j][0],
+             i / factor * p[(j+1) % n][1] + (1 - i / factor) * p[j][1]] for j in range(n) for i in range(factor)]
+
+
+def get_target_point(params):
+    waypoints = up_sample(get_waypoints_ordered_in_driving_direction(params), 20)
+
+    car = [params['x'], params['y']]
+
+    distances = [dist(p, car) for p in waypoints]
+    min_dist = min(distances)
+    i_closest = distances.index(min_dist)
+
+    n = len(waypoints)
+
+    waypoints_starting_with_closest = [waypoints[(i+i_closest) % n] for i in range(n)]
+
+    r = params['track_width'] * TURN_LOOKAHEAD_FACTOR
+
+    is_inside = [dist(p, car) < r for p in waypoints_starting_with_closest]
+    i_first_outside = is_inside.index(False)
+
+    if i_first_outside < 0:  # this can only happen if we choose r as big as the entire track
+        return waypoints[i_closest]
+
+    return waypoints_starting_with_closest[i_first_outside]
+
+
+def get_target_steering_degree(params):
+    tx, ty = get_target_point(params)
+    car_x = params['x']
+    car_y = params['y']
+    dx = tx-car_x
+    dy = ty-car_y
+    heading = params['heading']
+
+    _, target_angle = polar(dx, dy)
+
+    steering_angle = target_angle - heading
+
+    return angle_mod_360(steering_angle)
+
+
+def score_steer_to_point_ahead(params):
+    best_stearing_angle = get_target_steering_degree(params)
+    steering_angle = params['steering_angle']
+
+    error = (steering_angle - best_stearing_angle) / 60.0  # 60 degree is already really bad
+
+    score = 1.0 - abs(error)
+
+    return max(score, 0.01),  # optimizer is rumored to struggle with negative numbers and numbers too close to zero
+
+
+def reward_function(params):
+    waypoints = params['waypoints']
+    closest_waypoints = params['closest_waypoints']
+    speed = params['speed']
+    reward = 0
+    
+    #TODO: Improve on this by instead of returning a boolean value, return a float that defines how far off and how sharp the next the corner is
+    go_fast = select_speed(waypoints, closest_waypoints, FUTURE_STEP, MID_STEP)
+
+    # Implement speed incentive
+    if go_fast and speed > SPEED_THRESHOLD:
+        additional_reward_for_going_faster = (speed - SPEED_THRESHOLD)* SPEED_INCENTIVE_FACTOR
+        reward = reward + 0.1 + additional_reward_for_going_faster
+
+    #TODO: adjust reward for slowing down more the sharper and closer the next curve is
+    elif not go_fast and speed < SPEED_THRESHOLD:
+        reward += 0.1
+ 
+        
+    return float(score_steer_to_point_ahead(params))+reward
+
+def get_sample_waypoints():
+    sample_waypoints = [
+    [3.614891106635382, -2.0679206756591797],
+    [3.7165570053416723, -2.0679203739673944], #1
+    [3.8182485012915635, -2.0679203415159235], #2
+    [3.9199223439704554, -2.0679206756591797], #3
+    [4.021605719417003, -2.0679206756591797], #4
+    [4.1233041001442805, -2.0679206756591797], #5
+    [4.224952522112155, -2.067920647647181], #6
+    [4.3266092411165324, -2.0679201262254976], #7
+    [4.42819199291185, -2.0679205863921335], #8
+    [4.529820643215094, -2.0679206756591797], #9
+    [4.631469418248479, -2.0679206756591797], #10
+    [4.7331617968633255, -2.0679206756591797], #11
+    [4.834833521150113, -2.0679206756591797], #12
+    [4.936497301464911, -2.0679206756591797], #13
+    [5.038163200172331, -2.0679206756591797], #14
+    [5.139845339889508, -2.0679206756591797], #15
+    [5.241533305186391, -2.0679206756591797], #16
+    [5.34321173771644, -2.0679206597940616], #17
+    [5.441313264303258, -2.06792015452586], #18
+    [5.598114744309874, -2.0679206756591797], #19
+    [5.754527499272045, -2.0679206756591797], #20
+    [5.9291598430437364, -2.0679206756591797], #21
+    [6.139780323338747, -2.0679206756591797], #22
+    [6.336712809707775, -2.0679206756591797], #23
+    [6.498889534461239, -2.0679206756591797], #24
+    [6.600962870682581, -2.0679206756591797], #25
+    [6.703123767132293, -2.0679206756591797], #26
+    [6.805962902286426, -2.0679206756591797], #27
+    [6.9077056422182, -2.0679206756591797], #28
+    [7.008081895625102, -2.0679206756591797], #29
+    [7.107393531282133, -2.0679206756591797], #30
+    [7.206756186720863, -2.0679206756591797], #31
+    [7.3073936967648985, -2.0679206756591797], #32
+    [7.409601299671875, -2.0679206756591797], #33
+    [7.509568803949961, -2.0611845409872083], #34
+    [7.5965077965973675, -2.021289758429483], #35
+    [7.658757055934117, -1.949282139032922], #36
+    [7.692896589267007, -1.8567826176683582], #37
+    [7.7200258202923475, -1.7594408319711994], #38
+    [7.759893390569006, -1.6668839764994499], #39
+    [7.816746540591972, -1.5836480969485875], #40
+    [7.8892200590813415, -1.51223181542538], #41
+    [7.972491065023548, -1.452468596453631], #42
+    [8.057783777904119, -1.3954052824311902], #43
+    [8.135961037620817, -1.3293580542044736], #44
+    [8.203720402663553, -1.214383218396284], #45
+    [8.235206134618755, -1.071982756148926], #46
+    [8.246429825184794, -0.9569746319877372], #47
+    [8.252850499273885, -0.7744182174078819], #48
+    [8.254529059211313, -0.6142713729295056], #49
+    [8.254867645944087, -0.4369270171256362], #50
+    [8.254910391463717, -0.23994804664735625], #51
+    [8.254943510879118, -0.07940209670108757], #52
+    [8.254963768777904, 0.022692421238320302], #53
+    [8.254982988195394, 0.12474254211233228], #54
+    [8.254986705968212, 0.2268883546317645], #55
+    [8.254871682346247, 0.3291369923543398], #56
+    [8.254740811328436, 0.43143223082825677], #57
+    [8.253555960861759, 0.5335461059250569], #58
+    [8.248349149582543, 0.635357339255455], #59
+    [8.236996341104486, 0.7361907476351743], #60
+    [8.218450610765307, 0.8351166041872229], #61
+    [8.19287699497116, 0.9315478401756242], #62
+    [8.145502379478932, 1.0794154737729087], #63
+    [8.093725892640615, 1.2593414031134973], #64
+    [8.062267015393108, 1.4618043901903621], #65
+    [8.076664631568313, 1.6709821070879338], #66
+    [8.112626577571657, 1.821884155197661], #67
+    [8.161940827197315, 1.9757396640332971], #68
+    [8.197017151130263, 2.131709931612515], #69
+    [8.165715424027406, 2.3016388243856527], #70
+    [8.06122056123323, 2.437216261760524], #71
+    [7.857215301400608, 2.5027892223941675], #72
+    [7.599088968595036, 2.500791597442043], #73
+    [7.371612528926299, 2.490877626163352], #74
+    [7.187996330418946, 2.4628555136288566], #75
+    [7.016568993111884, 2.386888976603516], #76
+    [6.882899255371093, 2.255489071655273], #77
+    [6.882899255371093, 2.255489071655273], #78
+    [6.81707476181135, 2.0799159884896055], #79
+    [6.808413187857421, 1.8992380535391047], #80
+    [6.8357556995148006, 1.7239907739504665], #81
+    [6.875313687076652, 1.5706751753129429], #82
+    [6.917660203232298, 1.4282059640849654], #83
+    [6.955519856943242, 1.3085647037366674], #84
+    [6.990658390923856, 1.1982797545185173], #85
+    [7.023923566408785, 1.0873934230359426], #86
+    [7.051068033760591, 0.9829517435688391], #87
+    [7.075893449237197, 0.8726810500682082], #88
+    [7.092508108981651, 0.7420173067079575], #89
+    [7.09961322620332, 0.602024423678633], #90
+    [7.094649557216401, 0.4514316612808365], #91
+    [7.067434726249331, 0.3012048202113179], #92
+    [7.029499173282261, 0.15972835982610434], #93
+    [6.9771413928690595, 0.02380403535004752], #94
+    [6.904596173096535, -0.09495438155833114], #95
+    [6.826960163128451, -0.20271467094356663], #96
+    [6.732932305781652, -0.29361758448152886], #97
+    [6.629766656808577, -0.3726879881149829], #98
+    [6.518295119541343, -0.4423810174471312], #99
+    [6.394309768455717, -0.48894065282816124], #100
+    [6.2717859574373, -0.5210375029484943], #101
+    [6.165390736977974, -0.5346266961828197], #102
+    [6.064233325513815, -0.5288831565920213], #103
+    [5.963214353370343, -0.5136525728472092], #104
+    [5.872150410884214, -0.4757773184272234], #105
+    [5.782770314878171, -0.43008656128267386], #106
+    [5.701132060382242, -0.37042815306546467], #107
+    [5.618337033006591, -0.31342649812379975], #108
+    [5.530966175616423, -0.2702601147736066], #109
+    [5.437267314637833, -0.2589836871483935], #110
+    [5.349652229037648, -0.2831689627710782], #111
+    [5.275871358940308, -0.3365765405594922], #112
+    [5.209983479014281, -0.40414186572563887], #113
+    [5.1453211076311804, -0.4772438033079664], #114
+    [5.07575370888769, -0.5491487193060144], #115
+    [4.99680208834341, -0.6123683724612011], #116
+    [4.909563695274953, -0.6611471242021167], #117
+    [4.817232156822393, -0.6948914437130354], #118
+    [4.72073756598537, -0.7123690545329526], #119
+    [4.62024177116547, -0.7111778230357446], #120
+    [4.520616461559668, -0.692081759758896], #121
+    [4.426563127768642, -0.6597049644391867], #122
+    [4.337287254377234, -0.6183781376998658], #123
+    [4.248910245750778, -0.5754885231813675], #124
+    [4.156767468438717, -0.5404113532220224], #125
+    [4.05778954337801, -0.527694372606247], #126
+    [3.959335943671324, -0.5494456895239244], #127
+    [3.8732532170047946, -0.6038704751156887], #128
+    [3.7922817103965474, -0.6671673178185391], #129
+    [3.7044546588294107, -0.7221041185010225], #130
+    [3.6071796636630746, -0.7626949683025281], #131
+    [3.501302830641933, -0.7878626030873223], #132
+    [3.3908065028558507, -0.7985418801652926], #133
+    [3.2778760020156144, -0.798222667360678], #134
+    [3.164851915490798, -0.7926342719902664], #135
+    [3.0512632463538107, -0.7866796005785686], #136
+    [2.899230935562278, -0.7791441539266184], #137
+    [2.7889501500263716, -0.7710431056490882], #138
+    [2.6453614249386717, -0.7550910456175832], #139
+    [2.5276319224959813, -0.7392544191961524], #140
+    [2.347554740855845, -0.7156480264594174], #141
+    [2.149383817655071, -0.7434356676406333], #142
+    [2.026151440464805, -0.8825128021178686], #143
+    [2.0026370160581446, -1.0470141379862838], #144
+    [1.9946138576693113, -1.1579143246589645], #145
+    [1.9889937451149737, -1.2831497091019068], #146
+    [1.9850346048612117, -1.3804955738862432], #147
+    [1.984739334292271, -1.4824274053301156], #148
+    [1.9849377151705243, -1.586318054641666], #149
+    [1.9880294202295508, -1.6903713649212033], #150
+    [1.9958879088878831, -1.7985755311541987], #151
+    [2.0241423464994153, -1.90532339770824], #152
+    [2.0987447447114462, -1.9927155139950679], #153
+    [2.1896914724368117, -2.041269620037905], #154
+    [2.2900336853931877, -2.0637172082621147], #155
+    [2.3922468497536644, -2.069172617389945], #156
+    [2.494117994729184, -2.068133229910345], #157
+    [2.595702880296342, -2.0680130924529188], #158
+    [2.697991115715977, -2.067942009261061], #159
+    [2.8002760225303684, -2.0679206756591797], #160
+    [2.902567817990837, -2.0679206756591797], #161
+    [3.0048561710632957, -2.0679206756591797], #162
+    [3.106467697693079, -2.0679206756591797], #163
+    [3.208150896606565, -2.0679206756591797], #164
+    [3.3098249158186928, -2.0679206756591797], #165
+    [3.4115245322753447, -2.0679206756591797], #166
+    [3.513202082142185, -2.0679206756591797], #167
+    [3.614891106635382, -2.0679206756591797] #168
+        ]
+    return sample_waypoints
+
+testwaypoints = get_sample_waypoints()
+#print("current {} and distance {}".format(testwaypoints[47], dist(testwaypoints[47],testwaypoints[61])))
+#dist from 47 to 61 is 1.7923096370924942
+
+starting_waypoint = 64
+length_of_curve = 2
+
+total_angle_measured = total_angle_of_curve(testwaypoints, testwaypoints[starting_waypoint], length_of_curve)
+print("Total Computed Angle = {} measured from {} to {}".format(total_angle_measured[0]/2, total_angle_measured[1], total_angle_measured[2]))
+
+number_of_steps = total_angle_measured[2] - total_angle_measured[1]
+
+cornerid_values = identify_corner(testwaypoints, [starting_waypoint-1, starting_waypoint], number_of_steps)
+print("CorneringIDs = {} and {}".format(cornerid_values[0], cornerid_values[1]))
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+for waypoint in testwaypoints:
+    #waypoint = (point[2], point[3])
+    plt.scatter(waypoint[0], waypoint[1])
+    #print("Waypoint " + str(i) + ": " + str(waypoint))
+
+plt.show()
