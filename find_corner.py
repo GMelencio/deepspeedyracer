@@ -39,7 +39,7 @@ def get_corners_and_sharpness_scores(interval_min, interval_max, waypoints, thre
         #negative - curving to left
         #positive - curve to right
         prev_index = (len(corner_factors)-1 if current_waypoint_index == 0 else current_waypoint_index) - 1
-        corner_angle = corner_factors[current_waypoint_index] - corner_factors[prev_index]
+        corner_angle = math.degrees(corner_factors[current_waypoint_index] - corner_factors[prev_index])
         print("Waypoint {} (prev {}) factor: {} delta: {}".format(current_waypoint_index, prev_index, str(corner_factors[current_waypoint_index])[0:6], str(corner_angle)[0:6] ))
         waypoint_corner_angles.append([current_waypoint_index, corner_angle])
     return corner_ranges, waypoint_corner_angles
@@ -50,7 +50,7 @@ for waypoint in testwaypoints:
 corner_ranges, waypoint_corner_angles = get_corners_and_sharpness_scores(3,22,testwaypoints, 24)
 
 for waypoint_corner_angle in waypoint_corner_angles :
-    if (abs(waypoint_corner_angle[1])>3):
+    if (abs(waypoint_corner_angle[1])>1.5):
         waypoint_index = waypoint_corner_angle[0]
         size = round(abs(waypoint_corner_angle[1]),2)
         #print("Plotting: {}, {}, s={}\".format(testwaypoints[waypoint_index][0], testwaypoints[waypoint_index][1], size))
