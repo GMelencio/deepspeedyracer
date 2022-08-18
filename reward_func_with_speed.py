@@ -39,29 +39,36 @@ def identify_corner(waypoints, closest_waypoints, future_step):
     return diff_heading, dist_future
 
 
-def total_angle_of_curve(waypoints, first_point_on_curve, track_length_of_curve):
-    #NOTE: this expects that waypoints are ordered by distance from car (NOT linear distance as the car may be on a hairpin turn)
+def get_corners_sharpness(interval_min, interval_max, waypoints, threshhold):
+    corner_ranges = []
+    waypoints_and_scores = []
+    corner_sharpness_map = []
+    for j in range(0, len(waypoints)-1):
+        debug_output = "C@ " + str(j)
+        corner_score = 0
+        waypoint_interval_size = interval_max-interval_min + 1
+        change_in_heading, distance = reward_func_with_speed.identify_corner(waypoints, [j, j+1], waypoint_interval_size)
 
-    distances = [dist(p, first_point_on_curve) for p in waypoints]
-    min_dist = min(distances)
-    i_closest = distances.index(min_dist)
-    
-    #my n00b way of keeping track of variables cause I have to re-learn python after many years
-    i = i_closest
-    track_distance_traversed = 0
-    total_angle = 0
-    
-    #Iterate through waypoints, starting from i_closest, keep going until = track_distance_between
-    while track_distance_traversed < track_length_of_curve:
-        waypoint_current = waypoints[i]
-        waypoint_next = waypoints[i+1]
-        track_distance_traversed += dist(waypoint_current, waypoint_next)
-        opposite = waypoint_next[1] - waypoint_current[1]
-        adjacent = waypoint_next[0] - waypoint_current[0]
-        angle = math.atan2(opposite, adjacent) #output to log to check value
-        total_angle += angle
+        print("WP {}, dH={} @ {}".format(j, change_in_heading, distance))
+        if change_in_heading >= threshhold :
+        #print(\"Adding {} to range, score: {}\".format(str(j), str(corner_score)[0:4]))
+            waypoints_and_scores.append([j, change_in_heading])
+        elif len(waypoints_and_scores) > 2 :
+           #print(\"creating new range from {} to {}\".format(waypoints_and_scores[0][0], j))
 
-    return total_angle
+           corner_ranges.append(waypoints_and_scores)
+           waypoints_and_scores = []
+        else:
+            #to reduce "noise", reset collection if less than 2
+           waypoints_and_scores = []
+    
+        curves_and_turn_direction = []
+        #see if turning left or right by checing the first vs the last points in the curve
+    #for corner_range in corner_ranges :
+    #    curve_direction = determine_turn_direction(waypoints, corner_range)
+    #    curves_and_turn_direction.append([corner_range, curve_direction])
+
+    return corner_ranges
 
 #TODO: replace this with a function that takes into account how far is a sharp curve is ahead
 def select_speed(waypoints, closest_waypoints, future_step, mid_step):
