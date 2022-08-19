@@ -1,4 +1,6 @@
+from email.policy import default
 import math
+from turtle import distance
 import numpy as np
 
 # Parameters
@@ -41,12 +43,12 @@ def identify_corner(waypoints, closest_waypoints, future_step):
 def get_corners_sharpness(interval_min, interval_max, waypoints, threshhold):
     corner_ranges = []
     waypoints_in_corner = []
-    heading_change_at_waypoints = []
+    all_waypoints_scores = []
 
     for j in range(0, len(waypoints)-1):
         waypoint_interval_size = interval_max-interval_min + 1
         change_in_heading, distance = identify_corner(waypoints, [j, j+1], waypoint_interval_size)
-        heading_change_at_waypoints.append([j, change_in_heading, distance])
+        all_waypoints_scores.append(change_in_heading)
 
         #print("WP {}, dH={} @ {}".format(j, change_in_heading, distance))
         if change_in_heading >= threshhold :
@@ -59,7 +61,7 @@ def get_corners_sharpness(interval_min, interval_max, waypoints, threshhold):
             #to reduce "noise", reset collection if less than 2
            waypoints_in_corner = []
 
-    return corner_ranges, heading_change_at_waypoints
+    return corner_ranges, all_waypoints_scores
 
 #TODO: replace this with a function that takes into account how far is a sharp curve is ahead
 def select_speed(waypoints, closest_waypoints, future_step, mid_step):
@@ -135,14 +137,6 @@ def angle_mod_360(angle):
         return angle_between_0_and_360 - 360
 
 
-def get_waypoints_ordered_in_driving_direction(params):
-    # waypoints are always provided in counter clock wise order
-    if params['is_reversed']: # driving clock wise.
-        return list(reversed(params['waypoints']))
-    else: # driving counter clock wise.
-        return params['waypoints']
-
-
 def up_sample(waypoints, factor):
     """
     Adds extra waypoints in between provided waypoints
@@ -157,12 +151,8 @@ def up_sample(waypoints, factor):
              i / factor * p[(j+1) % n][1] + (1 - i / factor) * p[j][1]] for j in range(n) for i in range(factor)]
 
 
-def get_nearby_target_point(params, detection_distance):
-    waypoints = up_sample(get_waypoints_ordered_in_driving_direction(params), 20)
-
-    car = [params['x'], params['y']]
-
-    distances = [dist(p, car) for p in waypoints]
+def get_target_point(car_location, waypoints, detection_distance):
+    distances = [dist(p, car_location) for p in waypoints]
     min_dist = min(distances)
     i_closest = distances.index(min_dist)
 
@@ -170,7 +160,7 @@ def get_nearby_target_point(params, detection_distance):
 
     waypoints_starting_with_closest = [waypoints[(i+i_closest) % n] for i in range(n)]
 
-    is_inside = [dist(p, car) < detection_distance for p in waypoints_starting_with_closest]
+    is_inside = [dist(p, car_location) < detection_distance for p in waypoints_starting_with_closest]
     i_first_outside = is_inside.index(False)
 
     if i_first_outside < 0:  # this can only happen if we choose r as big as the entire track
@@ -179,39 +169,30 @@ def get_nearby_target_point(params, detection_distance):
     return waypoints_starting_with_closest[i_first_outside]
 
 
-def get_target_steering_degree(params, target_point):
+def get_target_steering_degree(car_location, car_heading, target_point):
     tx, ty = target_point
-    car_x = params['x']
-    car_y = params['y']
+    car_x = car_location[0]
+    car_y = car_location[1]
     dx = tx-car_x
     dy = ty-car_y
-    heading = params['heading']
 
     _, target_angle = polar(dx, dy)
 
-    steering_angle = target_angle - heading
+    steering_angle = target_angle - car_heading
 
     return angle_mod_360(steering_angle)
 
 
-def score_steer_to_point_ahead(params, best_stearing_angle):
-    steering_angle = params['steering_angle']
-
+def score_steer_to_point_ahead(steering_angle, best_stearing_angle):
     error = (steering_angle - best_stearing_angle) / 60.0  # 60 degree is already really bad
-
     score = 1.0 - abs(error)
 
     return max(score, 0.01)  # optimizer is rumored to struggle with negative numbers and numbers too close to zero
 
-def get_target_point_to_steer(params):
-    detection_distance = params['track_width'] * TURN_LOOKAHEAD_FACTOR
-    target_point = get_nearby_target_point(params, detection_distance)
-    return target_point
 
 #TODO: Improve on this by instead of returning a boolean value, return a float that defines how far off and how sharp the next the corner is
 def get_speed_score(all_waypoints, speed, closest_waypoints):
     speed_score = 0
-    
     
     go_fast = select_speed(all_waypoints, closest_waypoints, FUTURE_STEP, MID_STEP)
 
@@ -227,26 +208,95 @@ def get_speed_score(all_waypoints, speed, closest_waypoints):
     return speed_score
 
 
-def get_steering_score(params, target_point) :
-    best_steering_angle = get_target_steering_degree(params, target_point)
-    steering_score = float(score_steer_to_point_ahead(params, best_steering_angle))
+def get_steering_score(car_location, car_heading, steering_angle, target_point) :
+    best_steering_angle = get_target_steering_degree(car_location, car_heading, target_point)
+    steering_score = float(score_steer_to_point_ahead(steering_angle, best_steering_angle))
 
     return steering_score
 
-def reward_function(params):
-    waypoints = params['waypoints']
-    closest_waypoints = params['closest_waypoints']
-    speed = params['speed']
-    print("Current Speed {}".format())
+def get_closest_waypoint_index(car_location, all_waypoints) :
+    distances = [dist(p, car_location) for p in all_waypoints]
+    min_dist = min(distances)
+    index_closest_waypoint = distances.index(min_dist)
+    return index_closest_waypoint
 
-    detection_distance = params['track_width'] * TURN_LOOKAHEAD_FACTOR
-    target_point = get_nearby_target_point(params, detection_distance)
+def get_current_or_next_corner(car_location, all_waypoints, corner_ranges) :
+    index_closest_waypoint = get_closest_waypoint_index(car_location, all_waypoints)
+    waypoints_to_next_corner = []
 
-    #if corner_is_ahead :
+    n = len(all_waypoints)
+    waypoints_indices_starting_with_closest = [(i+index_closest_waypoint) % n for i in range(n)]
 
-    speed_score = get_speed_score(waypoints, speed, closest_waypoints)
-    steering_score = get_steering_score(params, target_point)
+    indecies_in_corner = []
+
+    for indicies_with_scores in corner_ranges:
+        indecies_in_corner = [k[0] for k in indicies_with_scores]
+        if index_closest_waypoint in indecies_in_corner :
+            return True, indicies_with_scores
+        #get next closest corner
+        else:    
+            #count how many waypoints until next corner
+            num_to_next_corner = 0
+            for wp_index in waypoints_indices_starting_with_closest :
+                num_to_next_corner = num_to_next_corner + 1
+                if wp_index in indicies_with_scores[0]:
+                    break
+
+            waypoints_to_next_corner.append([num_to_next_corner, indicies_with_scores])
+
+    #get the minimum # waypoints among those that were counted
+    prev_count, next_corner_waypoints = 0, []
+    for waypoint_count_and_points in waypoints_to_next_corner:
+        if prev_count == 0 or waypoint_count_and_points[0] < prev_count:
+            prev_count = waypoint_count_and_points[0]
+            next_corner_waypoints = waypoint_count_and_points[1]
+            
+    return False, next_corner_waypoints
+
+def get_speed_score_new(car_speed, car_location, is_in_corner, corner_data, all_wp_scores, all_waypoints) :
+    speed_incentive = SPEED_INCENTIVE_FACTOR
+    speed_reward = 0 #(car_speed - SPEED_THRESHOLD)* SPEED_INCENTIVE_FACTOR
+    closest_wp_index = get_closest_waypoint_index(car_location, all_waypoints)
+    if is_in_corner :
+        distance_to_exit = dist(corner_data[-1][0], car_location)
+        divisor = distance_to_exit + all_wp_scores[closest_wp_index]
+        speed_reward = car_speed/divisor
+    else:
+        # the further away from a corner, the faster it should go
+        distance_to_next_corner = dist(corner_data[0][0], car_location)
+        speed_reward = car_speed * distance_to_next_corner
+
+    return speed_reward
+
+def calculate_reward(car_location, car_heading, steering_angle, car_speed, track_width, is_direction_reversed, waypoints):
+    if is_direction_reversed : # driving clock wise.
+        waypoints = list(reversed(waypoints))
+
+    corner_ranges, all_waypoints_scores = get_corners_sharpness(3, 16, waypoints, 23)
+    is_in_corner, corner_data = get_current_or_next_corner(car_location, waypoints, corner_ranges)
+
+    detection_distance = track_width * TURN_LOOKAHEAD_FACTOR
+
+    if not is_in_corner :
+        detection_distance = dist(car_location, corner_data[0])
+
+    target_point = get_target_point(car_location, waypoints, detection_distance)
+    speed_score = get_speed_score_new(car_speed, car_location, is_in_corner, corner_data, all_waypoints_scores, waypoints)
+    steering_score = get_steering_score(car_location, car_heading, steering_angle, target_point)
 
     reward = speed_score + steering_score
+
+def reward_function(params):
+    waypoints = params['waypoints']
+    #closest_waypoints = params['closest_waypoints']
+    car_speed = params['speed']
+    steering_angle = params['steering_angle']
+    car_heading = params['heading']
+    car_location = [params['x'], params['y']]
+    track_width = params['track_width']
+    is_direction_reversed = params['is_reversed']
+    print("Current Speed {}".format(car_speed))
+
+    reward = calculate_reward(car_location, car_heading, steering_angle, car_speed, track_width, is_direction_reversed, waypoints)
 
     return reward

@@ -142,5 +142,25 @@ def get_ideal_speed_and_heading(closest_waypoints, waypoints, corner_ranges):
     return False
 
 
-corner_ranges = get_corners_sharpness(3,16, testwaypoints, 22)      
-test_show_plot()
+corner_ranges, heading_changes = reward_func_with_speed.get_corners_sharpness(3,16, testwaypoints, 23)      
+
+def test_corner_detection():
+    for waypoint in testwaypoints:
+        plt.scatter(waypoint[0], waypoint[1], color='k')
+    for waypoint_scores_in_corners in corner_ranges:
+        first_index_in_corner = waypoint_scores_in_corners[0][0]
+        last_index_in_corner = waypoint_scores_in_corners[-1][0]
+        print("plotting corner from {} to {}".format(first_index_in_corner, last_index_in_corner))
+        for index_and_score in waypoint_scores_in_corners :
+            plt.scatter(testwaypoints[index_and_score[0]][0], testwaypoints[index_and_score[0]][1], color='red', s=index_and_score[1]/1.5)
+    
+    car_location_indices= [1, 3, 30, 51, 52, 58, 100, 120, 140]
+    #car_location_indices= [58, 100, 120, 140]
+    for i in car_location_indices:
+        car_location = testwaypoints[i]
+        is_in_corner, corner_points = reward_func_with_speed.get_current_or_next_corner(car_location, testwaypoints, corner_ranges)
+        print("Test car @WP {}, in_corner={}, which corner or next={} ({} waypoints)".format(i, is_in_corner, corner_points[0], len(corner_points)))
+
+    plt.show
+
+test_corner_detection()
