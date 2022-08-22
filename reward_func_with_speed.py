@@ -3,7 +3,7 @@ import numpy as np
 
 # Parameters
 MIN_SPEED = 1.2
-TURN_LOOKAHEAD_FACTOR = 1.22 #How far to look ahead for turns (relative to track width)
+TURN_LOOKAHEAD_FACTOR = 1.2 #How far to look ahead for turns (relative to track width)
 
 TURN_DETECTION_INTERVAL = 5
 MIN_TURN_LENGTH = 3
@@ -150,29 +150,24 @@ def score_steer_to_point_ahead(steering_angle, best_stearing_angle):
     return max(score, 0.01)  # optimizer is rumored to struggle with negative numbers and numbers too close to zero
 
 
-def get_steering_score(car_location, car_heading, steering_angle, target_point) :
-    best_steering_angle = get_target_steering_degree(car_location, car_heading, target_point)
-    steering_score = float(score_steer_to_point_ahead(steering_angle, best_steering_angle))
-
-    return steering_score
-
-
 def get_steering_score_new(car_location, closest_wp_index, car_heading, steering_angle, is_in_corner, corner_data, all_waypoints_scores, track_width, waypoints) :
-    target_point = car_location
+    ideal_point_inside_turn = car_location
+    #get a point nearby ahead and a little bit further ahead if the corner is not as sharp
+    current_corner_sharpness = all_waypoints_scores[closest_wp_index] if closest_wp_index < len(all_waypoints_scores) else all_waypoints_scores[closest_wp_index-1]
+    detection_distance = track_width * (TURN_LOOKAHEAD_FACTOR + 1/max(current_corner_sharpness, 3))
+    nearby_target_point = get_nearby_target_point(car_location, closest_wp_index, waypoints, detection_distance)
 
     if is_in_corner :
-        #get a point nearby ahead and a little bit further ahead if the corner is not as sharp
-        detection_distance = track_width * (TURN_LOOKAHEAD_FACTOR + 1/all_waypoints_scores[closest_wp_index])
-        nearby_target_point = get_nearby_target_point(car_location, closest_wp_index, waypoints, detection_distance)
         last_waypoint_in_turn = waypoints[corner_data[-1][0]]
         #ideal point WITHIN the turn is the mid point between the nearby point and the last point
-        ideal_point_within_turn = [(last_waypoint_in_turn[0] + nearby_target_point[0])/2, (last_waypoint_in_turn[1] + nearby_target_point[1])/2]
-        #use the further point, if the "nearby" point is outside the corner, use that instead
-        target_point = ideal_point_within_turn if dist(car_location, ideal_point_within_turn) > dist(car_location, nearby_target_point) else nearby_target_point
+        ideal_point_inside_turn = [(last_waypoint_in_turn[0] + nearby_target_point[0])/2, (last_waypoint_in_turn[1] + nearby_target_point[1])/2]
     else:
         #if not in a corner, set target to the start of the next corner
         next_corner_index = corner_data[0][0]
-        target_point = waypoints[next_corner_index]
+        ideal_point_inside_turn = waypoints[next_corner_index]
+
+    #use the further point, if the "nearby" point is actually fruther than the nearby point, use that instead
+    target_point = ideal_point_inside_turn if dist(car_location, ideal_point_inside_turn) > dist(car_location, nearby_target_point) else nearby_target_point
 
     best_steering_angle = get_target_steering_degree(car_location, car_heading, target_point)
     steering_score = float(score_steer_to_point_ahead(steering_angle, best_steering_angle))
@@ -245,13 +240,13 @@ def calculate_reward(car_location, car_heading, steering_angle, car_speed, track
     corner_ranges, all_waypoints_scores = get_corners_sharpness(TURN_DETECTION_INTERVAL, MIN_TURN_LENGTH, CORNER_SHARPNESS_THRESHHOLD, waypoints)
     is_in_corner, corner_data = get_current_or_next_corner(closest_wp_index, waypoints, corner_ranges)
 
+    speed_score = get_speed_score_new(car_speed, car_location, closest_wp_index, is_in_corner, corner_data, all_waypoints_scores, distance_from_center, waypoints)
+    steering_score, target_point =  get_steering_score_new(car_location, closest_wp_index, car_heading, steering_angle, is_in_corner, corner_data, all_waypoints_scores, track_width, waypoints)
+
     additional_reward = 0
 
     if is_in_corner and all_wheels_on_track :
-        additional_reward = (car_speed-MIN_SPEED)/(car_speed + max(distance_from_center, 0.01))
-
-    speed_score = get_speed_score_new(car_speed, car_location, closest_wp_index, is_in_corner, corner_data, all_waypoints_scores, distance_from_center, waypoints)
-    steering_score, target_point =  get_steering_score_new(car_location, closest_wp_index, car_heading, steering_angle, is_in_corner, corner_data, all_waypoints_scores, track_width, waypoints)
+        additional_reward = max(steering_score * (car_speed-MIN_SPEED)/max(distance_from_center, 0.01), 0.05)
 
     distance_to_target_point = dist(car_location, target_point)
 
@@ -275,4 +270,8 @@ def reward_function(params):
 
     reward = calculate_reward(car_location, car_heading, steering_angle, car_speed, track_width, distance_from_center, is_direction_reversed, all_wheels_on_track, waypoints)
 
+    if params['is_crashed'] :
+        reward = reward * 0.1
+        print("CRASHED! Reward reduced to {}".format(reward))
+        
     return reward
