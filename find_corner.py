@@ -170,11 +170,12 @@ def test_corner_detection():
     car_location_indices= [1, 3, 30, 51, 52, 58, 100, 120, 140]
     #car_location_indices= [58, 100, 120, 140]
     for i in car_location_indices:
-        car_location = testwaypoints[i]
-        is_in_corner, corner_points = reward_func_with_speed.get_current_or_next_corner(car_location, testwaypoints, corner_ranges)
+        is_in_corner, corner_points = reward_func_with_speed.get_current_or_next_corner(i, testwaypoints, corner_ranges)
         print("Test car @WP {}, in_corner={}, which corner or next={} ({} waypoints)".format(i, is_in_corner, corner_points[0], len(corner_points)))
+        reward_func_with_speed.get_speed_score_new(3.1, testwaypoints[i], i, is_in_corner, corner_points, all_wp_scores, 0.2, testwaypoints)
 
     plt.show()
 
 test_corner_detection()
+
 #reward_func_with_speed.calculate_reward(testwaypoints[0])

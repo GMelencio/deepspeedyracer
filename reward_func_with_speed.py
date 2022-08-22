@@ -157,6 +157,29 @@ def get_steering_score(car_location, car_heading, steering_angle, target_point) 
     return steering_score
 
 
+def get_steering_score_new(car_location, closest_wp_index, car_heading, steering_angle, is_in_corner, corner_data, all_waypoints_scores, track_width, waypoints) :
+    target_point = car_location
+
+    if is_in_corner :
+        #get a point nearby ahead and a little bit further ahead if the corner is not as sharp
+        detection_distance = track_width * (TURN_LOOKAHEAD_FACTOR + 1/all_waypoints_scores[closest_wp_index])
+        nearby_target_point = get_nearby_target_point(car_location, closest_wp_index, waypoints, detection_distance)
+        last_waypoint_in_turn = waypoints[corner_data[-1][0]]
+        #ideal point WITHIN the turn is the mid point between the nearby point and the last point
+        ideal_point_within_turn = [(last_waypoint_in_turn[0] + nearby_target_point[0])/2, (last_waypoint_in_turn[1] + nearby_target_point[1])/2]
+        #use the further point, if the "nearby" point is outside the corner, use that instead
+        target_point = ideal_point_within_turn if dist(car_location, ideal_point_within_turn) > dist(car_location, nearby_target_point) else nearby_target_point
+    else:
+        #if not in a corner, set target to the start of the next corner
+        next_corner_index = corner_data[0][0]
+        target_point = waypoints[next_corner_index]
+
+    best_steering_angle = get_target_steering_degree(car_location, car_heading, target_point)
+    steering_score = float(score_steer_to_point_ahead(steering_angle, best_steering_angle))
+
+    return steering_score, target_point
+
+
 def get_closest_waypoint_index(car_location, all_waypoints) :
     distances = [dist(p, car_location) for p in all_waypoints]
     min_dist = min(distances)
@@ -197,7 +220,7 @@ def get_current_or_next_corner(closest_wp_index, all_waypoints, corner_ranges) :
     return False, next_corner_waypoints
 
 
-def get_speed_score_new(car_speed, car_location, closest_wp_index, is_in_corner, distance_from_center, corner_data, all_wp_scores, all_waypoints) :
+def get_speed_score_new(car_speed, car_location, closest_wp_index, is_in_corner, corner_data, all_wp_scores, distance_from_center, all_waypoints) :
     speed_reward = 0
     
     if is_in_corner :
@@ -224,25 +247,17 @@ def calculate_reward(car_location, car_heading, steering_angle, car_speed, track
 
     additional_reward = 0
 
-    target_point = car_location
-    if is_in_corner :
-        #new: look a little bit further ahead if the corner is not as sharp
-        detection_distance = track_width * (TURN_LOOKAHEAD_FACTOR + 1/all_waypoints_scores[closest_wp_index])
-        target_point = get_nearby_target_point(car_location, closest_wp_index, waypoints, detection_distance)
-        if all_wheels_on_track :
-            additional_reward = (car_speed-MIN_SPEED)/(car_speed + max(distance_from_center, 0.01))
-    else:
-        next_corner_index = corner_data[0][0]
-        target_point = waypoints[next_corner_index]
-    
-    distance_to_target = dist(car_location, target_point)
+    if is_in_corner and all_wheels_on_track :
+        additional_reward = (car_speed-MIN_SPEED)/(car_speed + max(distance_from_center, 0.01))
 
-    speed_score = get_speed_score_new(car_speed, car_location, closest_wp_index, is_in_corner, distance_from_center, corner_data, all_waypoints_scores, waypoints)
-    steering_score = get_steering_score(car_location, car_heading, steering_angle, target_point)
+    speed_score = get_speed_score_new(car_speed, car_location, closest_wp_index, is_in_corner, corner_data, all_waypoints_scores, distance_from_center, waypoints)
+    steering_score, target_point =  get_steering_score_new(car_location, closest_wp_index, car_heading, steering_angle, is_in_corner, corner_data, all_waypoints_scores, track_width, waypoints)
+
+    distance_to_target_point = dist(car_location, target_point)
 
     reward_score = speed_score + steering_score + additional_reward
-    print("@wp={} Spd={} hdng={} in_crnr={} corner@={} dist={} steer_sc={} spd_sc={} addtl={} REWARD={}".format(closest_wp_index, car_speed, car_heading, is_in_corner, corner_data[0][0], distance_to_target, steering_score, speed_score, additional_reward, reward_score))
-    reward_score = speed_score + steering_score
+    print("@wp={} Spd={} hdng={} in_crnr={} corner@={} dist={} steer_sc={} spd_sc={} addtl={} REWARD={}".format(closest_wp_index, car_speed, car_heading, is_in_corner, corner_data[0][0], distance_to_target_point, steering_score, speed_score, additional_reward, reward_score))
+
     return reward_score
 
 def reward_function(params):
