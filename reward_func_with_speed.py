@@ -266,17 +266,21 @@ def get_speed_score_new(car_speed, car_location, is_in_corner, corner_data, all_
 
     return speed_reward
 
-def calculate_reward(car_location, car_heading, steering_angle, car_speed, track_width, is_direction_reversed, waypoints):
+def calculate_reward(car_location, car_heading, steering_angle, car_speed, track_width, is_direction_reversed, all_wheels_on_track, waypoints):
     if is_direction_reversed : # driving clock wise.
         waypoints = list(reversed(waypoints))
 
     corner_ranges, all_waypoints_scores = get_corners_sharpness(TURN_DETECTION_INTERVAL, MIN_TURN_LENGTH, CORNER_SHARPNESS_THRESHHOLD, waypoints)
     is_in_corner, corner_data = get_current_or_next_corner(car_location, waypoints, corner_ranges)
 
+    additional_reward = 0
+
     target_point = car_location
     if is_in_corner :
         #detection_distance = track_width * TURN_LOOKAHEAD_FACTOR
         target_point = get_nearby_target_point(car_location, waypoints, track_width * TURN_LOOKAHEAD_FACTOR)
+        if all_wheels_on_track :
+            additional_reward = car_speed
     else:
         next_corner_index = corner_data[0][0]
         target_point = waypoints[next_corner_index]
@@ -286,7 +290,7 @@ def calculate_reward(car_location, car_heading, steering_angle, car_speed, track
     speed_score = get_speed_score_new(car_speed, car_location, is_in_corner, corner_data, all_waypoints_scores, waypoints)
     steering_score = get_steering_score(car_location, car_heading, steering_angle, target_point)
 
-    reward_score = speed_score + steering_score
+    reward_score = speed_score + steering_score + additional_reward
     print("Spd={} loc={} hdng={} in_crnr={} corner@={} dist={} steer_sc={} spd_sc={} REWARD={}".format(car_speed, car_location, car_heading, is_in_corner, corner_data[0][0], distance_to_target, steering_score, speed_score, reward_score))
     reward_score = speed_score + steering_score
     return reward_score
@@ -300,8 +304,9 @@ def reward_function(params):
     car_location = [params['x'], params['y']]
     track_width = params['track_width']
     is_direction_reversed = params['is_reversed']
+    all_wheels_on_track = params['all_wheels_on_track']
     #print("Current Speed {}".format(car_speed))
 
-    reward = calculate_reward(car_location, car_heading, steering_angle, car_speed, track_width, is_direction_reversed, waypoints)
+    reward = calculate_reward(car_location, car_heading, steering_angle, car_speed, track_width, is_direction_reversed, all_wheels_on_track, waypoints)
 
     return reward

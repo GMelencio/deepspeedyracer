@@ -176,5 +176,5 @@ def test_corner_detection():
 
     plt.show()
 
-#test_corner_detection()
+test_corner_detection()
 #reward_func_with_speed.calculate_reward(testwaypoints[0])
