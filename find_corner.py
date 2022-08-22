@@ -8,37 +8,6 @@ import reward_func_with_speed
 
 testwaypoints = track_waypoints.get_waypoints()
 
-def get_corners_sharpness(interval_min, interval_max, waypoints, threshhold):
-    corner_ranges = []
-    waypoints_and_scores = []
-    corner_sharpness_map = []
-    for j in range(0, len(waypoints)-1):
-        debug_output = "C@ " + str(j)
-        corner_score = 0
-        waypoint_interval_size = interval_max-interval_min + 1
-        change_in_heading, distance = reward_func_with_speed.identify_corner(waypoints, [j, j+1], waypoint_interval_size)
-
-        print("WP {}, dH={} @ {}".format(j, change_in_heading, distance))
-        if change_in_heading >= threshhold :
-        #print(\"Adding {} to range, score: {}\".format(str(j), str(corner_score)[0:4]))
-            waypoints_and_scores.append([j, change_in_heading])
-        elif len(waypoints_and_scores) > 2 :
-           #print(\"creating new range from {} to {}\".format(waypoints_and_scores[0][0], j))
-
-           corner_ranges.append(waypoints_and_scores)
-           waypoints_and_scores = []
-        else:
-            #to reduce "noise", reset collection if less than 2
-           waypoints_and_scores = []
-    
-        curves_and_turn_direction = []
-        #see if turning left or right by checing the first vs the last points in the curve
-    for corner_range in corner_ranges :
-        curve_direction = determine_turn_direction(waypoints, corner_range)
-        curves_and_turn_direction.append([corner_range, curve_direction])
-
-    return curves_and_turn_direction
-
 def determine_turn_direction(waypoints, waypoint_range):
     first_waypoint = waypoints[waypoint_range[0][0]]
     last_waypoint = waypoints[waypoint_range[-1][0]]
@@ -142,9 +111,51 @@ def get_ideal_speed_and_heading(closest_waypoints, waypoints, corner_ranges):
     return False
 
 
-corner_ranges, heading_changes = reward_func_with_speed.get_corners_sharpness(3,16, testwaypoints, 23)      
+profiles = [
+            [3, 3, 10], #allows gap at big tunr on right but not much on lower left and upper left
+            [3, 3, 12], # too many small gaps, does not detect upper left at all
+            [3, 3, 9], # - similar to 0
+            [3, 3, 8],  # - similar to 0
+            [3, 4, 7.5],  # - small gap at right and top left but no covrage of lower left horizontal
+            [3, 4, 6],  # -no gap at right and no covrage of lower left horizontal
+            [4, 4, 7.5],  # - no gap at right, covers lower left in two parts, but also zigzag
+            [4, 4, 8],  # - no gap at right, covers lower left in two parts, no zigzag
+            [4, 4, 7.5],  # - no gap at right, covers lower left in two parts, covers zigzag
+            [4, 4, 8.5],  # - tiny gap at right(1), no lower left horiz, no zigzag
+            [5, 4, 8.5],  # - no gap at right, covers all lower left, zigzag(8)
+            [4, 4, 9],   # - tiny gap at right(1), no lower left horiz, no zigzag
+            [4, 4, 8.25],   # - no gap at right, no lower left horiz, no zigzag
+            [4, 4, 10],   # - gap at right(3), no lower left horiz, no zigzag
+            [4, 3, 10],   # - gap at right(3), no lower left horiz, no zigzag, marks low shallow curve at top
+            [5, 3, 10],   # - gap at right, no lower left horiz in 2 parts, has zigzag, marks low shallow curve at top
+            [5, 3, 10.8],   # - gap at right, no lower left horiz in 2 parts, has zigzag, marks low shallow curve at top
+            [14, 2, 23],   # - default - covers turns in a long way
+            [4, 4, 11],  # - gap at right, no left horizontal, no zigzag
+            [4, 3, 11],  # - gap at right, no left horizontal, no zigzag
+            [5, 3, 11],  # - no gap at right, left horizontal in two parts (6 & 4), has top shallow curve, no zigzag
+            [5, 3, 12],  # - gap at right, left horizontal in two parts (5 & 4), has top shallow curve(4), no zigzag  # IDEAL
+            [4, 3, 12],  # - gap at right but earlier detect, no left horizontal, no top shallow curve(4), no zigzag
+            [7, 3, 12],  # - no gap at right, covers all lower left corner, has top shallow curve, full corner at rop, no zigzag early detect sharp turn
+            [5, 3, 12],  # - no gap at right, covers all lower left corner, has top shallow curve, full corner at rop, no zigzag early detect sharp turn
+            ]
+
+# 18 score 7.159816682017379
+# 19 score 9.018942006214132
+# 20 score 11.72114630683103
+# 21 score 15.321606054217114
+# 22 score 10.268200320443839
+# 23 score 8.078065319058737
+
+turn_profile = profiles[-1]
+
+corner_ranges, all_wp_scores = reward_func_with_speed.get_corners_sharpness(turn_profile[0], turn_profile[1], turn_profile[2], testwaypoints)      
 
 def test_corner_detection():
+    i_index = 0
+    for wp_score in all_wp_scores:
+        print("WP # {} score {}".format(i_index, wp_score))
+        i_index = i_index + 1
+    
     for waypoint in testwaypoints:
         plt.scatter(waypoint[0], waypoint[1], color='k')
     for waypoint_scores_in_corners in corner_ranges:
@@ -152,7 +163,9 @@ def test_corner_detection():
         last_index_in_corner = waypoint_scores_in_corners[-1][0]
         print("plotting corner from {} to {}".format(first_index_in_corner, last_index_in_corner))
         for index_and_score in waypoint_scores_in_corners :
-            plt.scatter(testwaypoints[index_and_score[0]][0], testwaypoints[index_and_score[0]][1], color='red', s=index_and_score[1]/1.5)
+            wp_index = index_and_score[0]
+            wp_score = index_and_score[1]
+            plt.scatter(testwaypoints[wp_index][0], testwaypoints[wp_index][1], color='red', s=wp_score/1.5)
     
     car_location_indices= [1, 3, 30, 51, 52, 58, 100, 120, 140]
     #car_location_indices= [58, 100, 120, 140]
@@ -161,6 +174,7 @@ def test_corner_detection():
         is_in_corner, corner_points = reward_func_with_speed.get_current_or_next_corner(car_location, testwaypoints, corner_ranges)
         print("Test car @WP {}, in_corner={}, which corner or next={} ({} waypoints)".format(i, is_in_corner, corner_points[0], len(corner_points)))
 
-    plt.show
+    plt.show()
 
-test_corner_detection()
+#test_corner_detection()
+#reward_func_with_speed.calculate_reward(testwaypoints[0])
