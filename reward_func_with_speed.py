@@ -2,14 +2,8 @@ import math
 import numpy as np
 
 # Parameters
-FUTURE_STEP = 16
-MID_STEP = 8
-TURN_THRESHOLD = 12     # degrees
-DIST_THRESHOLD = 1.2    # metres
-SPEED_THRESHOLD = 1.95   # m/s
-
-SPEED_INCENTIVE_FACTOR = 0.09 #Additional reward incentive for going faster
-TURN_LOOKAHEAD_FACTOR = 1.22 #How far to look ahead for turns (relative
+MIN_SPEED = 1.2
+TURN_LOOKAHEAD_FACTOR = 1.22 #How far to look ahead for turns (relative to track width)
 
 TURN_DETECTION_INTERVAL = 5
 MIN_TURN_LENGTH = 3
@@ -63,36 +57,6 @@ def get_corners_sharpness(interval_size_to_check, min_count, threshhold, waypoin
            waypoints_in_corner = []
 
     return corner_ranges, all_waypoints_scores
-
-#TODO: replace this with a function that takes into account how far is a sharp curve is ahead
-def select_speed(waypoints, closest_waypoints, future_step, mid_step):
-
-    # Identify if a corner is in the future
-    diff_heading, dist_future = identify_corner(waypoints, 
-                                                    closest_waypoints, 
-                                                    future_step)
-
-    if diff_heading < TURN_THRESHOLD:
-        # If there's no corner encourage going faster
-        go_fast = True
-    else:
-        if dist_future < DIST_THRESHOLD:
-            # If there is a corner and it's close encourage going slower
-            go_fast = False
-        else:
-            # If the corner is far away, re-assess closer points
-            diff_heading_mid, dist_mid = identify_corner(waypoints, 
-                                                         closest_waypoints, 
-                                                         mid_step)
-
-            if diff_heading_mid < TURN_THRESHOLD:
-                # If there's no corner encourage going faster
-                go_fast = True
-            else:
-                # If there is a corner and it's close encourage going slower
-                go_fast = False
-
-    return go_fast
 
 def dist(point1, point2):
     return ((point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2) ** 0.5
@@ -153,9 +117,7 @@ def up_sample(waypoints, factor):
 
 
 def get_nearby_target_point(car_location, closest_wp_index, waypoints, detection_distance):
-
     total_num_waypoints = len(waypoints)
-
     waypoints_starting_with_closest = [waypoints[(i+closest_wp_index) % total_num_waypoints] for i in range(total_num_waypoints)]
 
     for p in waypoints_starting_with_closest:
@@ -188,35 +150,19 @@ def score_steer_to_point_ahead(steering_angle, best_stearing_angle):
     return max(score, 0.01)  # optimizer is rumored to struggle with negative numbers and numbers too close to zero
 
 
-#TODO: Improve on this by instead of returning a boolean value, return a float that defines how far off and how sharp the next the corner is
-def get_speed_score(all_waypoints, speed, closest_waypoints):
-    speed_score = 0
-    
-    go_fast = select_speed(all_waypoints, closest_waypoints, FUTURE_STEP, MID_STEP)
-
-    # Implement speed incentive
-    if go_fast and speed > SPEED_THRESHOLD:
-        additional_reward_for_going_faster = (speed - SPEED_THRESHOLD)* SPEED_INCENTIVE_FACTOR
-        speed_score = speed_score + 0.1 + additional_reward_for_going_faster
-
-    #TODO: adjust reward for slowing down more the sharper and closer the next curve is
-    elif not go_fast and speed < SPEED_THRESHOLD:
-        speed_score += 0.1
-    
-    return speed_score
-
-
 def get_steering_score(car_location, car_heading, steering_angle, target_point) :
     best_steering_angle = get_target_steering_degree(car_location, car_heading, target_point)
     steering_score = float(score_steer_to_point_ahead(steering_angle, best_steering_angle))
 
     return steering_score
 
+
 def get_closest_waypoint_index(car_location, all_waypoints) :
     distances = [dist(p, car_location) for p in all_waypoints]
     min_dist = min(distances)
     index_closest_waypoint = distances.index(min_dist)
     return index_closest_waypoint
+
 
 def get_current_or_next_corner(closest_wp_index, all_waypoints, corner_ranges) :
     waypoints_to_next_corner = []
@@ -250,8 +196,9 @@ def get_current_or_next_corner(closest_wp_index, all_waypoints, corner_ranges) :
             
     return False, next_corner_waypoints
 
-def get_speed_score_new(car_speed, car_location, closest_wp_index, is_in_corner, distance_from_center_line, corner_data, all_wp_scores, all_waypoints) :
-    speed_reward = 0 #(car_speed - SPEED_THRESHOLD)* SPEED_INCENTIVE_FACTOR
+
+def get_speed_score_new(car_speed, car_location, closest_wp_index, is_in_corner, distance_from_center, corner_data, all_wp_scores, all_waypoints) :
+    speed_reward = 0
     
     if is_in_corner :
         distance_to_exit = dist(all_waypoints[corner_data[-1][0]], car_location)
@@ -259,12 +206,13 @@ def get_speed_score_new(car_speed, car_location, closest_wp_index, is_in_corner,
         speed_reward = car_speed/divisor
     else:
         # the further away from a corner, the faster it should go
-        distance_to_next_corner = dist(all_waypoints[corner_data[0][0]], car_location)
-        speed_reward = car_speed / (car_speed - distance_to_next_corner)
+        distance_to_next_corner = max(dist(all_waypoints[corner_data[0][0]], car_location), 0.01)
+        speed_reward = ((car_speed - MIN_SPEED)/car_speed) * distance_to_next_corner
 
-    speed_reward = speed_reward + 1/distance_from_center_line
+    #speed_reward = speed_reward + 1/max(distance_from_center, 0.01)
 
     return speed_reward
+
 
 def calculate_reward(car_location, car_heading, steering_angle, car_speed, track_width, distance_from_center, is_direction_reversed, all_wheels_on_track, waypoints):
     if is_direction_reversed : # driving clock wise.
@@ -278,10 +226,11 @@ def calculate_reward(car_location, car_heading, steering_angle, car_speed, track
 
     target_point = car_location
     if is_in_corner :
-        #detection_distance = track_width * TURN_LOOKAHEAD_FACTOR
-        target_point = get_nearby_target_point(car_location, closest_wp_index, waypoints, track_width * TURN_LOOKAHEAD_FACTOR)
+        #new: look a little bit further ahead if the corner is not as sharp
+        detection_distance = track_width * (TURN_LOOKAHEAD_FACTOR + 1/all_waypoints_scores[closest_wp_index])
+        target_point = get_nearby_target_point(car_location, closest_wp_index, waypoints, detection_distance)
         if all_wheels_on_track :
-            additional_reward = car_speed
+            additional_reward = (car_speed-MIN_SPEED)/(car_speed + max(distance_from_center, 0.01))
     else:
         next_corner_index = corner_data[0][0]
         target_point = waypoints[next_corner_index]
@@ -292,7 +241,7 @@ def calculate_reward(car_location, car_heading, steering_angle, car_speed, track
     steering_score = get_steering_score(car_location, car_heading, steering_angle, target_point)
 
     reward_score = speed_score + steering_score + additional_reward
-    print("@wp={} Spd={} hdng={} in_crnr={} corner@={} dist={} steer_sc={} spd_sc={} REWARD={}".format(closest_wp_index, car_speed, car_heading, is_in_corner, corner_data[0][0], distance_to_target, steering_score, speed_score, reward_score))
+    print("@wp={} Spd={} hdng={} in_crnr={} corner@={} dist={} steer_sc={} spd_sc={} addtl={} REWARD={}".format(closest_wp_index, car_speed, car_heading, is_in_corner, corner_data[0][0], distance_to_target, steering_score, speed_score, additional_reward, reward_score))
     reward_score = speed_score + steering_score
     return reward_score
 
