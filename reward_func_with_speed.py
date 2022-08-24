@@ -9,6 +9,9 @@ TURN_DETECTION_INTERVAL = 5
 MIN_TURN_LENGTH = 3
 CORNER_SHARPNESS_THRESHHOLD = 12
 
+FOLLOW_CENTERLINE_REWARD_FACTOR = 0.01
+PROGRESS_EFFICIENCY_FACTOR = 0.0001
+
 def identify_corner(waypoints, closest_waypoints, future_step):
 
     # Identify next waypoint and a further waypoint
@@ -243,26 +246,23 @@ def calculate_reward(car_location, car_heading, steering_angle, car_speed, track
     speed_score = get_speed_score_new(car_speed, car_location, closest_wp_index, is_in_corner, corner_data, all_waypoints_scores, distance_from_center, waypoints)
     steering_score, target_point = get_steering_score_new(car_location, closest_wp_index, car_heading, steering_angle, is_in_corner, corner_data, all_waypoints_scores, track_width, waypoints)
 
-    additional_reward1 = 0
-    additional_reward2 = 0
-    if is_in_corner :
-        additional_reward1 = steering_score * (car_speed-MIN_SPEED)
+    #removed as this was causing noise
+    #additional_reward1 = steering_score * (car_speed-MIN_SPEED) if is_in_corner else 0
         
-    if all_wheels_on_track :
-        additional_reward2 = (track_width/2)-distance_from_center
+    center_follow_reward = ((track_width/2)-distance_from_center)*FOLLOW_CENTERLINE_REWARD_FACTOR if all_wheels_on_track else 0
         
-    if steps > 0:
-        progress_reward = ((progress*150)/steps)**2
-    else:
-        progress_reward = 1
+    progress_reward = (((progress*150)/steps)**2 if steps > 0 else 1) * PROGRESS_EFFICIENCY_FACTOR
 
     distance_to_target_point = dist(car_location, target_point)
 
-    reward_score = (steering_score * (speed_score + additional_reward1 + additional_reward2)) + progress_reward
+    steer_with_speed_at_center = (steering_score * (speed_score + center_follow_reward))
     
-    print("@wp={} Spd={} hdng={} in_crnr={} corner@={} dist={} steer_sc={} spd_sc={} add1={} add2={} prog={} REWARD={}".format(closest_wp_index, car_speed, car_heading, is_in_corner, corner_data[0][0], distance_to_target_point, steering_score, speed_score, additional_reward1, additional_reward2, progress_reward, reward_score))
+    reward_score = steer_with_speed_at_center + progress_reward
+
+    print("@wp={} Spd={} hdng={} in_crnr={} corner@={} dist={} steer_sc={} spd_sc={} cntr={} spd@ctr = {} prog={} REWARD={}".format(closest_wp_index, car_speed, car_heading, is_in_corner, corner_data[0][0], distance_to_target_point, steering_score, speed_score, center_follow_reward, (speed_score + center_follow_reward), steer_with_speed_at_center, progress_reward, reward_score))
 
     return reward_score
+    
 
 def reward_function(params):
     waypoints = params['waypoints']
