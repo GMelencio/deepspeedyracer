@@ -243,15 +243,18 @@ def calculate_reward(car_location, car_heading, steering_angle, car_speed, track
     speed_score = get_speed_score_new(car_speed, car_location, closest_wp_index, is_in_corner, corner_data, all_waypoints_scores, distance_from_center, waypoints)
     steering_score, target_point =  get_steering_score_new(car_location, closest_wp_index, car_heading, steering_angle, is_in_corner, corner_data, all_waypoints_scores, track_width, waypoints)
 
-    additional_reward = 0
+    additional_reward1 = 0
+    additional_reward2 = 0
+    if is_in_corner :
+        additional_reward1 = steering_score * (car_speed-MIN_SPEED)
 
-    if is_in_corner and all_wheels_on_track :
-        additional_reward = max(steering_score * (car_speed-MIN_SPEED)/max(distance_from_center, 0.01), 0.05)
+    if all_wheels_on_track :
+        additional_reward2 = (track_width/2)-distance_from_center
 
     distance_to_target_point = dist(car_location, target_point)
 
-    reward_score = speed_score + steering_score + additional_reward
-    print("@wp={} Spd={} hdng={} in_crnr={} corner@={} dist={} steer_sc={} spd_sc={} addtl={} REWARD={}".format(closest_wp_index, car_speed, car_heading, is_in_corner, corner_data[0][0], distance_to_target_point, steering_score, speed_score, additional_reward, reward_score))
+    reward_score = speed_score + steering_score + additional_reward1 + additional_reward2
+    print("@wp={} Spd={} hdng={} in_crnr={} corner@={} dist={} steer_sc={} spd_sc={} add1={} add2={} REWARD={}".format(closest_wp_index, car_speed, car_heading, is_in_corner, corner_data[0][0], distance_to_target_point, steering_score, speed_score, additional_reward1, additional_reward2, reward_score))
 
     return reward_score
 
@@ -270,8 +273,18 @@ def reward_function(params):
 
     reward = calculate_reward(car_location, car_heading, steering_angle, car_speed, track_width, distance_from_center, is_direction_reversed, all_wheels_on_track, waypoints)
 
-    if params['is_crashed'] :
-        reward = reward * 0.1
+    steps = params['steps']
+    progress = params['progress']
+
+    if steps > 0:
+        progress_reward = ((progress*150)/steps)**2
+    else:
+        progress_reward = 1
+
+    reward = reward + progress_reward
+    
+    if params['is_offtrack'] :
+        reward = reward * 0.005
         print("CRASHED! Reward reduced to {}".format(reward))
-        
+
     return reward
